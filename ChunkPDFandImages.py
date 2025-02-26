@@ -1,58 +1,61 @@
-import pypdfium2 as pdfium
-import csv
+from docling.document_converter import DocumentConverter
+import fitz  # PyMuPDF
+import io
 from PIL import Image
-from io import BytesIO
-from pytesseract import image_to_string
+import os
 
-def convert_pdf_to_images(file_path, scale=300/72):
-    pdf_file = pdfium.PdfDocument(file_path)  
-    page_indices = list(range(len(pdf_file)))  # Lấy danh sách số trang
-    
-    renderer = pdf_file.render(
-        pdfium.PdfBitmap.to_pil,
-        page_indices=page_indices, 
-        scale=scale,
-    )
-    
-    list_final_images = []
-    
-    for i, image in zip(page_indices, renderer):
-        image_byte_array = BytesIO()
-        image.save(image_byte_array, format='JPEG', optimize=True)
-        image_byte_array = image_byte_array.getvalue()
-        list_final_images.append({i: image_byte_array})  # Lưu số trang và ảnh dạng bytes
-    
-    return list_final_images
+# Đường dẫn file PDF nguồn
+name = "your_file_name"
+source = name+".pdf"
+converter = DocumentConverter()
+result = converter.convert(source)
 
-def extract_text_with_pytesseract(list_dict_final_images):
-    image_list = [list(data.values())[0] for data in list_dict_final_images]
-    image_content = []
+# Xuất văn bản thành Markdown
+markdown_text = result.document.export_to_markdown()
+
+# Mở tệp PDF để trích xuất ảnh
+pdf_document = fitz.open(source)
+
+# Khởi tạo thứ tự ảnh
+image_counter = 1
+
+# Tạo thư mục để lưu ảnh nếu chưa tồn tại
+image_dir = "extracted_images"
+os.makedirs(image_dir, exist_ok=True)
+
+# Lặp qua các trang trong tài liệu
+for page_index in range(len(pdf_document)):
+    # Lấy trang hiện tại
+    page = pdf_document.load_page(page_index)
     
-    for index, image_bytes in enumerate(image_list):
-        image = Image.open(BytesIO(image_bytes))
-        raw_text = image_to_string(image, lang='vie')
-        image_content.append((index + 1, raw_text.strip()))  # Lưu số trang và nội dung
+    # Lấy tất cả các ảnh trên trang
+    image_list = page.get_images(full=True)
     
-    return image_content
+    # Lặp qua các ảnh và lưu chúng vào tệp
+    for img_index, img in enumerate(image_list):
+        # Lấy chi tiết ảnh
+        xref = img[0]
+        base_image = pdf_document.extract_image(xref)
+        image_bytes = base_image["image"]
 
-def save_text_to_txt(text_data, output_file="output.txt"):
-    with open(output_file, "w", encoding="utf-8") as f:
-        for page, text in text_data:
-            f.write(f"Page {page}:\n{text}\n\n")
-    print(f"Đã lưu văn bản vào {output_file}")
+        # Mở ảnh dưới dạng đối tượng PIL
+        image = Image.open(io.BytesIO(image_bytes))
 
-def save_text_to_csv(text_data, output_file="output.csv"):
-    with open(output_file, mode="w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Page", "Text"])
-        writer.writerows(text_data)
-    print(f"Đã lưu văn bản vào {output_file}")
+        # Định dạng tên tệp ảnh
+        image_filename = f"image_{image_counter}.png"
+        image_path = os.path.join(image_dir, image_filename)
+        image.save(image_path)
+        print(f"Saved: {image_filename}")
 
-# Chạy chương trình
-pdf_path = "Quy_trình.pdf"  # Đổi thành đường dẫn file PDF của bạn
-images = convert_pdf_to_images(pdf_path)
-text_data = extract_text_with_pytesseract(images)
+        # Thay thế mã đặc biệt bằng tên ảnh trong văn bản
+        markdown_text = markdown_text.replace("<!-- image -->", image_filename, 1)
+        image_counter += 1
 
-# Lưu ra file TXT và CSV
-save_text_to_txt(text_data, "chunked.txt")
-save_text_to_csv(text_data, "chunked.csv")
+pdf_document.close()
+
+# Lưu văn bản và liên kết ảnh vào file
+with open(name+".txt", "w", encoding='utf-8') as f:
+    f.write("\n\nMarkdown Conversion:\n")
+    f.write(markdown_text)
+
+print(markdown_text)
