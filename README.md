@@ -16,7 +16,7 @@ pip install docling PyMuPDF pillow
 2. Run the script:
 
 ```bash
-python script.py
+python pdftotxtandimage.py
 ```
 
 ## How It Works
